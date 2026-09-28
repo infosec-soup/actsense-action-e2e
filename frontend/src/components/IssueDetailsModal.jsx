@@ -1,0 +1,524 @@
+import React, { useState } from 'react'
+import { isDismissed, useDismissals } from '../dismissals'
+import './IssueDetailsModal.css'
+
+// Dismiss (with an optional reason) or restore the finding. Dismissals are
+// remembered for the audited repository or action, so they hold on re-runs.
+function TriageBar({ issue, onDone }) {
+  const { canDismiss, dismiss, restore } = useDismissals()
+  const [editing, setEditing] = useState(false)
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+
+  if (!issue.fingerprint || (!canDismiss && !isDismissed(issue))) return null
+
+  const run = async (action) => {
+    setBusy(true)
+    setError(null)
+    try {
+      await action()
+      onDone()
+    } catch (err) {
+      setError(err.message)
+      setBusy(false)
+    }
+  }
+
+  if (isDismissed(issue)) {
+    const { reason: savedReason, dismissed_at: dismissedAt } = issue.dismissed
+    const date = dismissedAt ? new Date(dismissedAt).toLocaleDateString() : null
+    return (
+      <div className="issue-triage">
+        <div className="issue-triage-status">
+          <strong>Dismissed{date ? ` on ${date}` : ''}</strong>
+          {savedReason && <span className="issue-triage-reason">{savedReason}</span>}
+        </div>
+        {canDismiss && (
+          <button type="button" className="triage-btn" disabled={busy} onClick={() => run(() => restore(issue))}>
+            {busy ? 'Restoring…' : 'Restore'}
+          </button>
+        )}
+        {error && <p className="issue-triage-error" role="alert">{error}</p>}
+      </div>
+    )
+  }
+
+  if (!editing) {
+    return (
+      <div className="issue-triage">
+        <span className="issue-triage-hint">False positive or accepted risk?</span>
+        <button type="button" className="triage-btn" onClick={() => setEditing(true)}>
+          Dismiss finding
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <form
+      className="issue-triage issue-triage-form"
+      onSubmit={(event) => {
+        event.preventDefault()
+        run(() => dismiss(issue, reason))
+      }}
+    >
+      <label className="issue-triage-label" htmlFor="dismiss-reason">
+        Reason <span>(optional)</span>
+      </label>
+      <input
+        id="dismiss-reason"
+        className="issue-triage-input"
+        type="text"
+        maxLength={500}
+        placeholder="e.g. test-only workflow, accepted risk"
+        value={reason}
+        onChange={(event) => setReason(event.target.value)}
+        autoFocus
+      />
+      <div className="issue-triage-actions">
+        <button type="button" className="triage-btn triage-btn-quiet" disabled={busy} onClick={() => setEditing(false)}>
+          Cancel
+        </button>
+        <button type="submit" className="triage-btn triage-btn-primary" disabled={busy}>
+          {busy ? 'Dismissing…' : 'Dismiss'}
+        </button>
+      </div>
+      <p className="issue-triage-note">
+        Hidden from counts and views on every audit of this target. You can restore it from the findings table.
+      </p>
+      {error && <p className="issue-triage-error" role="alert">{error}</p>}
+    </form>
+  )
+}
+
+function IssueDetailsModal({ issue, otherInstances, onClose }) {
+  if (!issue) return null
+
+  const getIssueDescription = (issue) => {
+    const issueType = issue?.type
+    const descriptions = {
+      'unpinned_version': {
+        description: 'This action is not pinned to a specific version, tag, or commit SHA. Using unpinned actions means your workflows could break or be compromised if the action is updated with malicious code.',
+        mitigation: 'Pin actions to a specific version tag (e.g., @v3) or better yet, use the full commit SHA (40 characters) for maximum security. Example: actions/checkout@8f4b7f84884ec3e152e95e913f196d7a537752ca'
+      },
+      'no_hash_pinning': {
+        description: 'This action uses a version tag instead of a commit SHA hash. Tags can be moved or overwritten, making them less secure than immutable commit SHAs.',
+        mitigation: 'Replace the tag with the full 40-character commit SHA. You can find the SHA by visiting the action repository and copying the commit hash from the releases page.'
+      },
+      'short_hash_pinning': {
+        description: 'This action uses a short commit SHA (7+ characters) instead of the full 40-character SHA. Short SHAs can potentially collide with other commits.',
+        mitigation: 'Use the full 40-character commit SHA instead of a short SHA for maximum security and immutability.'
+      },
+      'unpinnable_docker_image': {
+        description: 'This Docker action uses a mutable tag (like "latest" or "v1") instead of an immutable Docker image digest. Tags can be updated to point to different images, creating a security risk.',
+        mitigation: 'Use Docker image digests (sha256:...) instead of tags. You can get the digest by running: docker pull <image>:<tag> && docker inspect <image>:<tag> | grep RepoDigests'
+      },
+      'unpinnable_composite_subaction': {
+        description: 'This composite action uses sub-actions that are not pinned to full commit SHAs. This creates a transitive dependency risk.',
+        mitigation: 'Update the composite action to pin all sub-actions to full 40-character commit SHAs instead of tags or branches.'
+      },
+      'unpinnable_javascript_resources': {
+        description: 'This JavaScript action downloads external resources without checksum verification, making it vulnerable to supply chain attacks.',
+        mitigation: 'Add checksum verification for all downloaded resources using SHA256 or SHA512 hashes before executing them.'
+      },
+      'overly_permissive': {
+        description: 'This workflow has overly permissive permissions, allowing write access to repository contents. This increases the attack surface if the workflow is compromised.',
+        mitigation: 'Use the principle of least privilege. Only grant the minimum permissions needed. Use read-only permissions when possible, and scope write permissions to specific areas.'
+      },
+      'github_token_write_all': {
+        description: 'This workflow uses write-all permissions for GITHUB_TOKEN, giving it full access to the repository. This is a significant security risk.',
+        mitigation: 'Replace write-all with specific, scoped permissions. Only grant write access to the specific areas needed (e.g., contents: write, packages: write).'
+      },
+      'github_token_write_permissions': {
+        description: 'This workflow grants write permissions to GITHUB_TOKEN for specific scopes. While better than write-all, it still poses a risk if compromised.',
+        mitigation: 'Review if write permissions are truly necessary. Consider using read-only permissions and only grant write access when absolutely required for the workflow to function.'
+      },
+      'self_hosted_runner': {
+        description: 'This workflow uses self-hosted runners, which can be compromised and used to attack your repository or infrastructure.',
+        mitigation: 'Use GitHub-hosted runners when possible. If self-hosted runners are necessary, implement strict security controls, network isolation, and regular security audits.'
+      },
+      'dangerous_event': {
+        description: 'This workflow uses dangerous trigger events like pull_request_target or workflow_run, which can be exploited by attackers from forks or through workflow chaining.',
+        mitigation: 'Avoid using pull_request_target when possible. If necessary, validate all inputs and never trust code from pull requests. For workflow_run, ensure proper authentication and validation.'
+      },
+      'unsafe_checkout': {
+        description: 'This workflow uses checkout with persist-credentials=true, which can expose credentials to subsequent steps.',
+        mitigation: 'Remove persist-credentials or set it to false. Use GITHUB_TOKEN with appropriate permissions instead of persisting credentials.'
+      },
+      'unsafe_checkout_ref': {
+        description: 'This workflow uses checkout with a potentially unsafe ref that could be manipulated.',
+        mitigation: 'Validate and sanitize ref inputs before using them in checkout. Use fixed refs or validate against an allowlist.'
+      },
+      'potential_script_injection': {
+        description: 'This workflow may be vulnerable to script injection through github.event variables used in shell commands.',
+        mitigation: 'Sanitize all user inputs and github.event data before using them in shell commands. Use environment variables and proper escaping.'
+      },
+      'risky_context_usage': {
+        description: 'This workflow uses risky GitHub context variables (such as github.event.pull_request.title, github.event.issue.body, github.ref_name, etc.) that are user-controllable. These variables can be exploited by attackers to inject malicious code, execute arbitrary commands, or access sensitive information. Never use ${{ github.event.* }} directly in shell commands.',
+        mitigation: 'Move risky context variables to environment variables and add input validation. Never use ${{ github.event.* }} directly in shell commands. Pass context variables through environment variables first, then validate them against allowlists before use. Example: env: { PR_TITLE: ${{ github.event.pull_request.title }} } then validate $PR_TITLE before using it in commands.'
+      },
+      'potential_hardcoded_secret': {
+        description: 'This workflow may contain hardcoded secrets, passwords, or API keys, which is a critical security vulnerability.',
+        mitigation: 'Remove all hardcoded secrets immediately. Use GitHub Secrets or environment secrets instead. Rotate any exposed credentials.'
+      },
+      'optional_secret_input': {
+        description: 'This action has optional secret inputs, which could lead to security issues if secrets are not properly validated.',
+        mitigation: 'Make secret inputs required when they are necessary for security, or implement proper default handling and validation.'
+      },
+      'long_term_aws_credentials': {
+        description: 'This workflow uses long-term AWS credentials instead of OIDC, which is less secure and harder to rotate.',
+        mitigation: 'Migrate to GitHub OIDC for AWS authentication. This provides temporary credentials and better security. See: https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/configuring-openid-connect-in-amazon-web-services'
+      },
+      'long_term_azure_credentials': {
+        description: 'This workflow uses long-term Azure credentials instead of OIDC.',
+        mitigation: 'Migrate to GitHub OIDC for Azure authentication. See: https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/configuring-openid-connect-in-azure'
+      },
+      'long_term_gcp_credentials': {
+        description: 'This workflow uses long-term GCP credentials instead of OIDC.',
+        mitigation: 'Migrate to GitHub OIDC for GCP authentication. See: https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/configuring-openid-connect-in-google-cloud-platform'
+      },
+      'untrusted_third_party_action': {
+        description: 'This workflow uses a third-party action from an untrusted publisher. Third-party actions can contain malicious code.',
+        mitigation: 'Only use actions from trusted publishers. Review the action source code, check for security advisories, and consider forking and maintaining your own copy of critical actions.'
+      },
+      'untrusted_action_unpinned': {
+        description: 'This workflow uses an untrusted third-party action that is not pinned to a specific version, making it extremely vulnerable.',
+        mitigation: 'Pin the action to a specific commit SHA and review the source code. Consider forking the action and maintaining your own version if it\'s critical.'
+      },
+      'secrets_in_matrix': {
+        description: 'This workflow uses secrets in a matrix strategy, which exposes secrets to all matrix job combinations.',
+        mitigation: 'Remove secrets from matrix definitions. Use environment variables or job-level secrets instead. Secrets in matrices are visible to all jobs.'
+      },
+      'unvalidated_workflow_input': {
+        description: 'This workflow accepts inputs without proper validation, which could lead to injection attacks or unexpected behavior.',
+        mitigation: 'Validate all workflow inputs before use. Check types, ranges, and formats. Sanitize inputs used in shell commands or file paths.'
+      },
+      'code_injection_via_input': {
+        description: 'This workflow may be vulnerable to code injection through workflow_dispatch inputs used in shell commands.',
+        mitigation: 'Validate and sanitize all workflow inputs. Never directly interpolate user inputs into shell commands. Use environment variables and proper escaping.'
+      },
+      'branch_protection_bypass': {
+        description: 'This workflow may bypass branch protection rules by auto-approving or auto-merging pull requests.',
+        mitigation: 'Remove auto-approval or auto-merge functionality from workflows. Let branch protection rules handle approvals and merges.'
+      },
+      'unfiltered_network_traffic': {
+        description: 'This workflow performs network operations that could exfiltrate credentials or sensitive data.',
+        mitigation: 'Implement network segmentation and traffic filtering. Monitor outbound connections and restrict access to only necessary endpoints.'
+      },
+      'no_file_tampering_protection': {
+        description: 'This workflow modifies files during build without protection against tampering.',
+        mitigation: 'Implement endpoint detection and response (EDR) tools to detect source code or artifact tampering during build processes.'
+      },
+      'insufficient_audit_logging': {
+        description: 'This workflow performs sensitive operations without detailed audit logging.',
+        mitigation: 'Enable detailed audit logging for all CI/CD activities. Log all sensitive operations, credential usage, and file modifications to enable forensic analysis.'
+      },
+      'checkout_full_history': {
+        description: 'This workflow fetches the full git history, which may expose sensitive information from commit history.',
+        mitigation: 'Use fetch-depth: 1 to only fetch the latest commit, unless full history is necessary for the workflow.'
+      },
+      'long_artifact_retention': {
+        description: 'This workflow retains artifacts for more than 90 days, which may violate data retention policies.',
+        mitigation: 'Set artifact retention to 90 days or less unless longer retention is required for compliance.'
+      },
+      'large_matrix': {
+        description: 'This workflow has a large matrix with many combinations, which may impact performance and costs.',
+        mitigation: 'Review if all matrix combinations are necessary. Consider splitting into separate workflows or reducing the matrix size.'
+      },
+      'environment_with_secrets': {
+        description: 'This workflow uses environment secrets, which should be carefully managed.',
+        mitigation: 'Ensure environment protection rules are configured. Limit access to environments with secrets and use approval workflows when appropriate.'
+      },
+      'unpinned_dockerfile_dependencies': {
+        description: 'This Docker action installs Python packages without version pinning in the Dockerfile.',
+        mitigation: 'Pin all package versions in Dockerfile using == syntax (e.g., pip install package==1.2.3). Use requirements.txt with pinned versions.'
+      },
+      'unpinned_dockerfile_resources': {
+        description: 'This Docker action downloads external resources without checksum verification in the Dockerfile.',
+        mitigation: 'Verify checksums for all downloaded external resources in the Dockerfile using SHA256 or SHA512.'
+      },
+      'unpinned_npm_packages': {
+        description: 'This workflow or action installs NPM packages without version locking. Package names without exact versions can resolve to different code over time, creating a supply-chain risk.',
+        mitigation: 'Use npm ci with a committed package-lock.json for project dependencies, or specify exact package versions when installing directly in a workflow command.'
+      },
+      'unpinned_python_packages': {
+        description: 'This workflow or action installs Python packages without exact version pinning. Unpinned packages can resolve to different releases over time, including compromised or breaking releases.',
+        mitigation: 'Pin Python package versions with == (for example, pip install package==1.2.3) or install from a requirements file with exact pinned versions and hashes.'
+      },
+      'unpinned_external_resources': {
+        description: 'This composite action downloads external resources without checksum verification.',
+        mitigation: 'Verify checksums for all downloaded external resources using SHA256 or SHA512 before using them.'
+      },
+      'unsafe_shell': {
+        description: 'This workflow uses bash without the -e flag, which means errors may not be caught.',
+        mitigation: 'Add -e flag to bash commands (set -e) or use set -euo pipefail for better error handling.'
+      },
+      'older_action_version': {
+        description: 'This workflow uses an older version of a GitHub Action (v1 or v2). Older versions may contain security vulnerabilities that have been fixed in newer releases.',
+        mitigation: 'Check the action repository for newer versions (typically v3+ or v4+). Review the changelog for security fixes and breaking changes. Update to the latest stable version that maintains compatibility with your workflow. Always test updates in a non-production environment first.'
+      },
+      'inconsistent_action_version': {
+        description: 'This action is used with different versions across multiple workflow files in the repository. This inconsistency can lead to unpredictable behavior, security vulnerabilities, and maintenance challenges.',
+        mitigation: 'Standardize on a single version of this action across all workflows. Review all workflow files and update them to use the same version (preferably the latest stable version). This ensures consistent behavior and makes it easier to apply security updates across the entire repository.'
+      },
+      'github_env_injection': {
+        description: 'This workflow writes user-controllable input (such as github.event.* or github.head_ref) to the $GITHUB_ENV or $GITHUB_PATH runner files. An attacker can inject variables like LD_PRELOAD or alter PATH to execute code in later, more privileged steps.',
+        mitigation: 'Never write ${{ github.event.* }} directly to $GITHUB_ENV or $GITHUB_PATH. Pass the value through an intermediate env variable, validate it against a strict allowlist, then write it with printf so attacker-supplied newlines cannot inject extra entries.'
+      },
+      'github_output_injection': {
+        description: 'This workflow writes user-controllable input to the $GITHUB_OUTPUT runner file. This can inject additional output keys or newline-delimited payloads that later steps and jobs consume and trust.',
+        mitigation: 'Do not write user-controllable context directly to $GITHUB_OUTPUT. Sanitize and validate the value through an intermediate env variable first, use a random delimiter for multi-line values, and validate again where the output is consumed.'
+      },
+      'excessive_secret_exposure': {
+        description: 'This workflow serializes the entire secrets context with toJson(secrets), exposing every secret to a step that should only need one. A single leak, crash, or compromised action would expose the whole secret store.',
+        mitigation: 'Pass only the individual secrets a step needs, by name (e.g. env: { API_TOKEN: ${{ secrets.API_TOKEN }} }). Never use toJson(secrets). Prefer short-lived OIDC tokens over long-lived stored secrets.'
+      },
+      'secrets_inherit': {
+        description: 'This job calls a reusable workflow with "secrets: inherit", forwarding all of the caller\'s secrets without restriction to a workflow that may be maintained independently or in another repository.',
+        mitigation: 'Pass only the secrets the reusable workflow requires, explicitly by name, instead of "secrets: inherit". Declare the required secrets in the reusable workflow\'s workflow_call block.'
+      },
+      'cache_poisoning': {
+        description: 'This workflow uses caching in a job triggered by a privileged event (pull_request_target or workflow_run). Attacker-controlled code from a fork can poison the cache, which later trusted runs will restore and trust.',
+        mitigation: 'Avoid restoring or saving caches in workflows triggered by pull_request_target or workflow_run. Build and test untrusted code in a separate pull_request workflow that runs without secrets, and segregate cache keys by trust boundary.'
+      },
+      'missing_permissions': {
+        description: 'This workflow does not set an explicit permissions block, so the GITHUB_TOKEN falls back to the repository default, which may grant more access than the workflow needs.',
+        mitigation: 'Add an explicit least-privilege permissions block at the workflow level (e.g. permissions: { contents: read }) and widen it per job only where required. Consider setting the repository default token permissions to read-only.'
+      },
+      'insecure_commands': {
+        description: 'This workflow re-enables or uses the deprecated set-env / add-path stdout commands (via ACTIONS_ALLOW_UNSECURE_COMMANDS or ::set-env/::add-path). These commands let any printed output define environment variables or modify PATH, an injection sink that can lead to code execution in later steps.',
+        mitigation: 'Remove ACTIONS_ALLOW_UNSECURE_COMMANDS and migrate to the $GITHUB_ENV / $GITHUB_PATH environment files, validating any user-controllable value first. Update or replace older actions that still require the flag.'
+      },
+      'spoofable_actor_condition': {
+        description: 'This workflow gates behaviour on github.actor or github.triggering_actor (e.g. if: github.actor == \'dependabot[bot]\'). The actor context is spoofable in several trigger contexts and is not a reliable trust boundary, so the gate can be bypassed.',
+        mitigation: 'Do not use github.actor as a security control. Verify the event payload (e.g. github.event.pull_request.user.login), and enforce trust with least-privilege permissions, environment protection rules with required reviewers, or a GitHub App identity.'
+      },
+      'hardcoded_container_credentials': {
+        description: 'This job hardcodes a container or service registry password as a literal string instead of referencing a secret. The credential is exposed to anyone with read access and is preserved permanently in git history.',
+        mitigation: 'Store the registry credential in GitHub Secrets and reference it as ${{ secrets.NAME }}. Rotate any password that was committed, since it remains recoverable from history.'
+      },
+      'secrets_outside_env': {
+        description: 'This workflow interpolates a secret directly into a run command. Secrets on the command line can leak via process listings, shell traces, error output, or imperfectly masked logs.',
+        mitigation: 'Pass the secret through a step env: variable and reference the environment variable in the command, e.g. env: { TOKEN: ${{ secrets.TOKEN }} } then use "$TOKEN". Quote the variable and avoid echoing it.'
+      },
+      'artifact_poisoning': {
+        description: 'This workflow downloads an artifact while running under a privileged trigger (pull_request_target or workflow_run). The artifact may have been produced by an untrusted run (such as a fork), so trusting its contents can pivot an attacker into the privileged workflow.',
+        mitigation: 'Do not consume untrusted artifacts in privileged workflows. Validate artifact names and contents, never execute downloaded files, and prefer operating only on trusted, verified inputs.'
+      },
+      'ref_version_mismatch': {
+        description: 'This action is pinned to a commit SHA whose trailing version comment (e.g. # v4) resolves to a different commit. The comment is misleading, so the workflow is not running the version it appears to, which can hide a downgrade or a swapped commit.',
+        mitigation: 'Re-pin to the SHA the intended tag points to, or correct the comment to match the commit actually in use. Use a pinning tool that keeps the SHA and version comment in sync.'
+      }
+    }
+
+    if (descriptions[issueType]) {
+      return descriptions[issueType]
+    }
+
+    return {
+      description: issue?.message || `${formatTitle(issueType)} was detected in this workflow.`,
+      mitigation: issue?.recommendation || `Open the actsense documentation for ${formatTitle(issueType)} and apply the recommended mitigation for this finding.`
+    }
+  }
+
+  // Format issue type as title (convert snake_case to Title Case)
+  const formatTitle = (type) => {
+    if (!type) return 'Security Issue'
+    return type
+      .split('_')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ')
+  }
+
+  const issueInfo = getIssueDescription(issue)
+  
+  // Get actsense.dev URL for this vulnerability
+  // Prefer the doc link the backend put in the evidence: several issue types
+  // share one page (e.g. long_term_aws_credentials -> long_term_cloud_credentials).
+  const getActsenseUrl = (type) => {
+    const fromEvidence = [issue?.evidence?.vulnerability, issue?.recommendation]
+      .map(text => typeof text === 'string' && text.match(/https:\/\/actsense\.dev\/vulnerabilities\/[a-z0-9_]+/))
+      .find(Boolean)
+    if (fromEvidence) return fromEvidence[0]
+    if (!type) return 'https://actsense.dev/vulnerabilities'
+    return `https://actsense.dev/vulnerabilities/${type}`
+  }
+  
+  // Format field names for display (convert snake_case to Title Case)
+  const formatFieldName = (key) => {
+    return key
+      .split('_')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ')
+  }
+  
+  // Format field values
+  const formatFieldValue = (key, value) => {
+    if (key === 'verified' && typeof value === 'boolean') {
+      return (
+        <span 
+          className={`verification-pill ${value ? 'verified' : 'unverified'}`}
+          style={{ marginLeft: '0.5rem' }}
+        >
+          {value ? '✓ Verified' : '⚠ Unverified'}
+        </span>
+      )
+    }
+    if (key === 'sha_length' && typeof value === 'number') {
+      return `${value} characters`
+    }
+    if (Array.isArray(value)) {
+      return value.join(', ')
+    }
+    if (typeof value === 'object' && value !== null) {
+      return JSON.stringify(value, null, 2)
+    }
+    return String(value)
+  }
+  
+  // Get evidence fields (excluding the "vulnerability" link field)
+  const getEvidenceFields = () => {
+    if (!issue.evidence) return []
+    return Object.entries(issue.evidence).filter(([key]) => key !== 'vulnerability')
+  }
+  
+  const evidenceFields = getEvidenceFields()
+
+  return (
+    <>
+      <div className="issue-modal-backdrop" onClick={onClose} />
+      <div className="issue-modal">
+        <div className="issue-modal-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <h3>{formatTitle(issue.type)}</h3>
+            {isDismissed(issue) && <span className="dismissed-pill">Dismissed</span>}
+            {issue.type === 'trufflehog_secret_detected' && issue.evidence && (
+              <span 
+                className={`verification-pill ${issue.evidence.verified ? 'verified' : 'unverified'}`}
+                title={issue.evidence.verified ? 'This secret has been verified by TruffleHog' : 'This secret pattern was detected but not verified'}
+              >
+                {issue.evidence.verified ? '✓ Verified' : '⚠ Unverified'}
+              </span>
+            )}
+          </div>
+          <button className="issue-modal-close" onClick={onClose} aria-label="Close">
+            ×
+          </button>
+        </div>
+        
+        <div className="issue-modal-content">
+          {/* Title */}
+          <div className="issue-modal-section">
+            <h2 className="issue-title">{formatTitle(issue.type)}</h2>
+          </div>
+
+          {/* Short Description */}
+          <div className="issue-modal-section">
+            <h4>Description</h4>
+            <p className="issue-description">{issueInfo.description}</p>
+          </div>
+
+          {/* Short Mitigation Strategy */}
+          <div className="issue-modal-section">
+            <h4>Mitigation Strategy</h4>
+            <p className="issue-mitigation">{issueInfo.mitigation}</p>
+          </div>
+
+          {/* Evidence */}
+          {evidenceFields.length > 0 && (
+            <div className="issue-modal-section">
+              <h4>Evidence</h4>
+              <div className="evidence-container">
+                {evidenceFields.map(([key, value]) => {
+                  // Skip null, undefined, or empty string values
+                  if (value === null || value === undefined || value === '') {
+                    return null
+                  }
+                  
+                  return (
+                    <div key={key} className="evidence-item">
+                      <span className="evidence-label">{formatFieldName(key)}:</span>
+                      <span className="evidence-value">{formatFieldValue(key, value)}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Additional Message if present */}
+          {issue.message && (
+            <div className="issue-modal-section">
+              <div className="mitigation-message">
+                {issue.message}
+              </div>
+            </div>
+          )}
+
+          {/* Actsense.dev Reference Link */}
+          <div className="issue-modal-section">
+            <div className="actsense-reference">
+              <p className="actsense-reference-text">
+                For more details on the issue and mitigation, refer to the{' '}
+                <a 
+                  href={getActsenseUrl(issue.type)} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="actsense-link"
+                >
+                  actsense.dev documentation
+                </a>.
+              </p>
+            </div>
+          </div>
+
+          {issue.type === 'inconsistent_action_version' && issue.workflows && issue.workflows.length > 0 && (
+            <div className="issue-modal-section">
+              <h4>Versions Found ({issue.version_count || issue.versions?.length || 0})</h4>
+              <div className="other-instances-list">
+                {issue.versions && issue.versions.map((version, idx) => {
+                  const workflowsForVersion = issue.workflows.filter(w => w.version === version)
+                  return (
+                    <div key={idx} className="instance-item">
+                      <div className="instance-node">
+                        <strong>Version {version}</strong> - Found in {workflowsForVersion.length} workflow{workflowsForVersion.length !== 1 ? 's' : ''}
+                      </div>
+                      <div style={{ marginTop: '0.5rem' }}>
+                        {workflowsForVersion.map((wf, wfIdx) => (
+                          <div key={wfIdx} className="instance-message" style={{ marginBottom: '0.25rem' }}>
+                            • {wf.workflow_name} ({wf.workflow_path})
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {otherInstances && otherInstances.length > 0 && (
+            <div className="issue-modal-section">
+              <h4>Other Instances ({otherInstances.length})</h4>
+              <div className="other-instances-list">
+                {otherInstances.map((instance, index) => (
+                  <div key={index} className="instance-item">
+                    <div className="instance-node">{instance.nodeLabel || instance.id}</div>
+                    {instance.message && (
+                      <div className="instance-message">{instance.message}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <TriageBar key={issue.fingerprint} issue={issue} onDone={onClose} />
+      </div>
+    </>
+  )
+}
+
+export default IssueDetailsModal

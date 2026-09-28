@@ -1,0 +1,184 @@
+.issues-table-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.issues-table-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.issues-table-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--ink);
+  font-family: var(--font-sans);
+}
+
+.issues-count {
+  color: var(--ink-3);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.issues-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--ink-3);
+  padding: 3rem;
+}
+
+.issues-table-wrapper {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: auto;
+}
+
+.issues-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-sans);
+}
+
+.issues-table thead {
+  background: var(--surface-sunken);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.issues-table th {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--line);
+}
+
+.issues-table tbody tr {
+  border-bottom: 1px solid var(--surface-hover);
+  transition: background-color 0.15s ease;
+}
+
+.issues-table tbody tr:hover {
+  background: var(--surface-sunken);
+  cursor: pointer;
+}
+
+.issues-table tbody tr:last-child {
+  border-bottom: none;
+}
+
+.issues-table td {
+  padding: 1rem;
+  font-size: 0.875rem;
+  color: var(--ink);
+}
+
+.severity-badge {
+  display: inline-block;
+  padding: 0.25rem 0.625rem;
+  border-radius: 4px;
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.issue-type-cell {
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+.node-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.node-label {
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.node-type {
+  font-size: 0.75rem;
+  color: var(--ink-3);
+  text-transform: capitalize;
+}
+
+.message-cell {
+  color: var(--ink-2);
+  max-width: 400px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-cell {
+  background: var(--surface-sunken);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8125rem;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  border: 1px solid var(--line);
+}
+
+
+.issues-table-meta {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.show-dismissed {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8125rem;
+  color: var(--ink-3);
+  cursor: pointer;
+  user-select: none;
+}
+
+.show-dismissed input {
+  accent-color: var(--accent);
+  margin: 0;
+}
+
+.issues-table-row.is-dismissed td {
+  opacity: 0.55;
+}
+
+.issues-table-row.is-dismissed .severity-badge {
+  filter: grayscale(1);
+}
+
+.dismissed-chip {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.05rem 0.45rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--ink-3);
+  background: var(--surface-sunken);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  vertical-align: middle;
+}

@@ -1,0 +1,290 @@
+/* ------------------------------------------------------------------
+   Design tokens
+   One cool-gray family (the existing #111827 ink / #f8fafc canvas),
+   one accent, and a single top-down light source for every shadow.
+   ------------------------------------------------------------------ */
+:root {
+  --canvas: #f4f5f7;
+  --surface: #ffffff;
+  --surface-sunken: #f8f9fb;
+  --surface-hover: #f3f4f6;
+
+  --ink: #111827;
+  --ink-2: #374151;
+  --ink-3: #6b7280;
+  --ink-4: #9ca3af;
+
+  --line: #e5e7eb;
+  --line-strong: #d1d5db;
+
+  --accent: #2563eb;
+  --accent-soft: #eff4ff;
+  --focus-ring: 0 0 0 3px rgba(37, 99, 235, 0.28);
+
+  --sev-critical: #dc2626;
+  --sev-high: #ea580c;
+  --sev-medium: #ca8a04;
+  --sev-low: #6b7280;
+  --sev-none: #16a34a;
+
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* Shadows are tinted with the ink hue (17,24,39), never pure black. */
+  --shadow-xs: 0 1px 1px rgba(17, 24, 39, 0.04);
+  --shadow-sm: 0 1px 2px rgba(17, 24, 39, 0.06), 0 1px 1px rgba(17, 24, 39, 0.03);
+  --shadow-md: 0 4px 12px -2px rgba(17, 24, 39, 0.08), 0 2px 4px -1px rgba(17, 24, 39, 0.04);
+  --shadow-lg: 0 16px 40px -8px rgba(17, 24, 39, 0.16), 0 4px 10px -2px rgba(17, 24, 39, 0.06);
+  /* The 1px top highlight that makes raised controls read as physical. */
+  --bevel: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --bevel-dark: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+
+  /* Status tints: background, border and text for callouts and badges. */
+  --danger-bg: #fef2f2;
+  --danger-border: #fecaca;
+  --danger-ink: #b91c1c;
+  --warn-bg: #fef3c7;
+  --warn-border: #fde68a;
+  --warn-ink: #92400e;
+  --success-bg: #f0fdf4;
+  --success-border: #bbf7d0;
+  --info-ink: #0369a1;
+  --accent-border: #c7d7fe;
+
+  /* Inverse surfaces: dark buttons and tooltips on the light theme, light
+     ones on the dark theme. */
+  --inverse: #1f2937;
+  --on-inverse: #ffffff;
+  --inverse-hover: #1f2937;
+  --btn-top: #1f2937;
+  --btn-bottom: #111827;
+  --btn-border: #0b1220;
+
+  /* Canvas details */
+  --home-bg: #f7f8fa;
+  --canvas-dot: #d9dce1;
+  --canvas-dot-soft: rgba(17, 24, 39, 0.07);
+  --edge: #c3c8d0;
+  --glass: rgba(255, 255, 255, 0.92);
+  --scrim-canvas: rgba(244, 245, 247, 0.72);
+  --scrim: rgba(0, 0, 0, 0.5);
+  --selection: rgba(37, 99, 235, 0.16);
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --press: translateY(1px) scale(0.985);
+
+  --z-panel: 20;
+  --z-overlay: 40;
+  --z-modal: 60;
+}
+
+/* Dark theme. main.jsx resolves the saved choice (light, dark or system)
+   to data-theme on <html> before the first paint. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --canvas: #0b0c0f;
+  --surface: #15171c;
+  --surface-sunken: #101216;
+  --surface-hover: #1c1f26;
+
+  --ink: #eceef2;
+  --ink-2: #c4c8d0;
+  --ink-3: #8b919c;
+  --ink-4: #5f6570;
+
+  --line: #262a32;
+  --line-strong: #343944;
+
+  --accent: #5b9bf5;
+  --accent-soft: rgba(91, 155, 245, 0.14);
+  --focus-ring: 0 0 0 3px rgba(91, 155, 245, 0.4);
+
+  --sev-critical: #f05252;
+  --sev-high: #f97316;
+  --sev-medium: #eab308;
+  --sev-low: #8b919c;
+  --sev-none: #22c55e;
+
+  --shadow-xs: 0 1px 1px rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 1px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 12px -2px rgba(0, 0, 0, 0.5), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 16px 40px -8px rgba(0, 0, 0, 0.6), 0 4px 10px -2px rgba(0, 0, 0, 0.35);
+  --bevel: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --bevel-dark: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+
+  --danger-bg: rgba(240, 82, 82, 0.12);
+  --danger-border: rgba(240, 82, 82, 0.32);
+  --danger-ink: #fca5a5;
+  --warn-bg: rgba(234, 179, 8, 0.12);
+  --warn-border: rgba(234, 179, 8, 0.32);
+  --warn-ink: #fcd34d;
+  --success-bg: rgba(34, 197, 94, 0.12);
+  --success-border: rgba(34, 197, 94, 0.3);
+  --info-ink: #7dd3fc;
+  --accent-border: rgba(91, 155, 245, 0.4);
+
+  --inverse: #eceef2;
+  --on-inverse: #111318;
+  --inverse-hover: #ffffff;
+  --btn-top: #ffffff;
+  --btn-bottom: #e4e6ea;
+  --btn-border: #c4c8d0;
+
+  --home-bg: #0b0c0f;
+  --canvas-dot: #262a32;
+  --canvas-dot-soft: rgba(255, 255, 255, 0.05);
+  --edge: #3a404b;
+  --glass: rgba(21, 23, 28, 0.9);
+  --scrim-canvas: rgba(11, 12, 15, 0.72);
+  --scrim: rgba(0, 0, 0, 0.65);
+  --selection: rgba(91, 155, 245, 0.3);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-feature-settings: 'cv11', 'ss01';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: var(--canvas);
+  color: var(--ink);
+  line-height: 1.55;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+  min-height: 100dvh;
+}
+
+code, kbd, .mono {
+  font-family: var(--font-mono);
+  font-feature-settings: normal;
+}
+
+h1, h2, h3, h4 {
+  text-wrap: balance;
+}
+
+p {
+  text-wrap: pretty;
+}
+
+/* Numbers in stats, counts and tables line up. */
+.tabular, table, [class*="count"], [class*="stat-value"] {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Interaction primitives ------------------------------------- */
+
+button {
+  font-family: inherit;
+}
+
+button:not(:disabled),
+[role="button"],
+.clickable {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:not(:disabled):active,
+.clickable:active {
+  transform: var(--press);
+}
+
+/* Graph nodes handle their own pressed state without moving. */
+.react-flow__node .clickable:active,
+.react-flow__node button:active {
+  transform: none;
+}
+
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+::selection {
+  background: var(--selection);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+/* Thin scrollbars, visible on hover of the scroll container. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+*:hover {
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+}
+
+*:hover::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-4);
+}
+
+/* Shared small primitives used across components */
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.0625rem 0.375rem;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--ink-2);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-xs);
+}
+
+.sev-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}

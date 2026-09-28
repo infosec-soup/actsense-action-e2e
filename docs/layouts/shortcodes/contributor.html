@@ -1,0 +1,31 @@
+{{- $name := .Get "name" -}}
+{{- $image := .Get "image" -}}
+{{- $linkedin := .Get "linkedin" | default "" -}}
+{{- $twitter := .Get "twitter" | default "" -}}
+{{- $github := .Get "github" | default "" -}}
+{{- $website := .Get "website" | default "" -}}
+{{- $contributions := .Get "contributions" | default "" -}}
+
+<article class="contributor-card" tabindex="0">
+  <div class="contributor-card__photo">
+    <img src="{{ $image }}" alt="Portrait of {{ $name }}" class="contributor-card__image" width="400" height="400" loading="lazy">
+    <div class="contributor-card__links" aria-label="{{ $name }} links">
+      {{- if $website }}
+      <a href="{{ $website }}" target="_blank" rel="noopener noreferrer" aria-label="{{ $name }} website"><i class="fa-solid fa-globe" aria-hidden="true"></i></a>
+      {{- end }}
+      {{- if $github }}
+      <a href="{{ $github }}" target="_blank" rel="noopener noreferrer" aria-label="{{ $name }} on GitHub"><i class="fa-brands fa-github" aria-hidden="true"></i></a>
+      {{- end }}
+      {{- if $linkedin }}
+      <a href="{{ $linkedin }}" target="_blank" rel="noopener noreferrer" aria-label="{{ $name }} on LinkedIn"><i class="fa-brands fa-linkedin-in" aria-hidden="true"></i></a>
+      {{- end }}
+      {{- if $twitter }}
+      <a href="{{ $twitter }}" target="_blank" rel="noopener noreferrer" aria-label="{{ $name }} on X"><i class="fa-brands fa-x-twitter" aria-hidden="true"></i></a>
+      {{- end }}
+    </div>
+  </div>
+  <h3>{{ $name }}</h3>
+  {{- if $contributions }}
+  <p class="contributor-card__contribution" role="tooltip">{{ $contributions }}</p>
+  {{- end }}
+</article>

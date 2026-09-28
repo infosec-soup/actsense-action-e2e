@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+
+# Node
+node_modules/
+dist/
+build/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Analysis storage
+/data/
+
+# Hugo
+.hugo.pid
+.hugo_build.lock
+resources/_gen/
+.hugo_cache/
+public/
+
+# Coverage
+.coverage
+*/.coverage
+
+# Documentation
+.cursor/
+
+# Examples
+examples/
+scripts/push_vuln_labs.sh

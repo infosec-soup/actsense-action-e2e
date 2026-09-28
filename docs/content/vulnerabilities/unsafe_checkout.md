@@ -1,0 +1,112 @@
+# Unsafe Checkout
+
+## Description
+
+Workflows that use `actions/checkout` with `persist-credentials: true` create security risks: credentials are stored in the runner's Git configuration, subsequent steps can access and potentially misuse these credentials, and credentials may be exposed in logs or artifacts. If the runner is compromised, credentials are accessible. **Note:** `persist-credentials` defaults to `true` in `actions/checkout`, so it must be explicitly set to `false` unless your workflow needs to push commits back to the repository. [^gh_checkout]
+
+## Vulnerable Instance
+
+- Workflow uses `actions/checkout` without setting `persist-credentials: false` (the default is `true`).
+- Credentials are persisted in Git configuration for all subsequent steps.
+- Any later step or third-party action can read `~/.git-credentials` or the Git credential helper and use the `GITHUB_TOKEN` to make API calls or push commits.
+
+```yaml
+name: Build
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        # persist-credentials defaults to true — GITHUB_TOKEN is stored in .git/config
+      - uses: some-third-party/code-analysis@v2  # this action can now read the token
+      - run: npm test
+      - uses: actions/upload-artifact@v4          # workspace uploads can carry .git/config
+        with:
+          name: workspace
+          path: .
+```
+
+## How actsense detects this
+
+- `persist-credentials: true` set explicitly → **high**.
+- `persist-credentials` left at its default (`true`) **and** the same job uploads artifacts → **medium**. Artifact uploads are the most common way the token in `.git/config` leaks.
+
+A checkout that leaves the default but never uploads artifacts is not reported, to keep noise down; setting `persist-credentials: false` everywhere is still the recommended baseline.
+
+## Mitigation Strategies
+
+1. **Set persist-credentials to false explicitly**  
+   Update the checkout step to use `persist-credentials: false`. Do not rely on omitting the line — the default is `true`, so omitting it leaves credentials persisted in `.git/config`.
+
+2. **Use GITHUB_TOKEN for pushing**  
+   If you need to push changes, use GITHUB_TOKEN with appropriate permissions instead of persisting credentials. GITHUB_TOKEN is automatically available and doesn't need to be persisted.
+
+3. **Use PAT stored in secrets for external repos**  
+   For external repositories, use a Personal Access Token (PAT) stored in GitHub Secrets. Don't persist credentials unnecessarily.
+
+4. **Review all checkout steps**  
+   Audit all workflows for checkout steps with `persist-credentials: true`. Remove or set to false unless explicitly needed.
+
+5. **Use minimal permissions**  
+   Use minimal permissions for GITHUB_TOKEN. Only grant write permissions when necessary for pushing changes.
+
+6. **Isolate credential usage**  
+   If credentials must be persisted, isolate their usage to specific steps and clear them afterward when possible.
+
+### Secure Version
+
+**For read-only workflows** (tests, linting, builds that don't push):
+
+```diff
+ name: Build
+ on: [push]
+ jobs:
+   build:
+     runs-on: ubuntu-latest
++    permissions:
++      contents: read
+     steps:
+       - uses: actions/checkout@v4
++        with:
++          persist-credentials: false  # No token left in .git/config after checkout
+       - uses: some-third-party/code-analysis@v2  # can no longer steal the token
+       - run: npm test
+```
+
+**For workflows that need to push commits back** (e.g. auto-formatting, changelogs):
+
+```yaml
+name: Auto-format
+on: [push]
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to push
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true   # required for git push to work
+      - run: npm run format
+      - run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git diff --quiet || git commit -am "style: auto-format" && git push
+```
+
+## Impact
+
+| Dimension | Severity | Notes |
+| --- | --- | --- |
+| Likelihood | ![Medium](https://img.shields.io/badge/-Medium-yellow?style=flat-square) | Persisting credentials is less common but creates risk when present, especially with untrusted actions. |
+| Risk | ![High](https://img.shields.io/badge/-High-orange?style=flat-square) | Persisted credentials can be accessed by malicious steps or actions, enabling unauthorized repository access or code modification. |
+| Blast radius | ![Medium](https://img.shields.io/badge/-Medium-yellow?style=flat-square) | Impact depends on what the credentials can access, but can affect repository contents and potentially enable persistent compromise. |
+
+## References
+
+- GitHub Docs, "actions/checkout," https://github.com/actions/checkout [^gh_checkout]
+
+---
+
+[^gh_checkout]: GitHub Docs, "actions/checkout," https://github.com/actions/checkout

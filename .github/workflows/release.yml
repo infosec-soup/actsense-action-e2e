@@ -1,0 +1,159 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y software-properties-common
+          sudo add-apt-repository -y ppa:deadsnakes/ppa
+          sudo apt-get update
+          sudo apt-get install -y python3.12 python3.12-venv git
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh -o /tmp/uv-install.sh
+          sh /tmp/uv-install.sh
+          rm -f /tmp/uv-install.sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          uv sync
+
+      - name: Run tests with coverage
+        run: |
+          cd backend
+          uv run pytest --cov=. --cov-report=term-missing
+
+  build-check:
+    name: Build Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        run: |
+          curl -fsSL https://deb.nodesource.com/setup_20.x -o /tmp/node-setup.sh
+          sudo bash /tmp/node-setup.sh
+          rm -f /tmp/node-setup.sh
+          sudo apt-get install -y nodejs
+
+      - name: Install patch-package globally
+        run: npm install -g patch-package
+
+      - name: Install dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm run build
+
+  release:
+    name: Create Release
+    needs: [test, build-check]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get tag name
+        run: echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
+      - name: Fetch all tags
+        run: git fetch --tags --force
+
+      - name: Generate release notes
+        run: |
+          set -e
+          CURRENT_TAG=${GITHUB_REF#refs/tags/}
+          NOTES_FILE="$RUNNER_TEMP/release-notes.md"
+          
+          # Get all tags sorted by version, excluding current tag
+          # Only X.Y.Z release tags; the moving v<major> tags are not releases.
+          PREV_TAG=$(git tag --sort=-version:refname | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | grep -v "^${CURRENT_TAG}$" | head -1 || echo "")
+          
+          if [ -z "$PREV_TAG" ]; then
+            # No previous tag found - this is the initial release
+            {
+              echo "## v$CURRENT_TAG"
+              echo ""
+              echo "Initial release of actsense."
+            } > "$NOTES_FILE"
+          else
+            # Generate changelog between previous tag and current tag
+            # Use merge-base to handle cases where tags might not be in direct lineage
+            CHANGELOG=$(git log --pretty=format:'- %s (%h)' $(git merge-base ${PREV_TAG} ${CURRENT_TAG} 2>/dev/null || echo ${PREV_TAG})..${CURRENT_TAG} 2>/dev/null || echo "")
+            
+            if [ -z "$CHANGELOG" ]; then
+              {
+                echo "## v$CURRENT_TAG"
+                echo ""
+                echo "### Changes since $PREV_TAG"
+                echo ""
+                echo "No changes found."
+              } > "$NOTES_FILE"
+            else
+              {
+                echo "## v$CURRENT_TAG"
+                echo ""
+                echo "### Changes since $PREV_TAG"
+                echo ""
+                echo "$CHANGELOG"
+              } > "$NOTES_FILE"
+            fi
+          fi
+
+          echo "RELEASE_NOTES_FILE=$NOTES_FILE" >> "$GITHUB_ENV"
+
+      - name: Create Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+
+          if gh release view "$TAG_NAME" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release already exists for $TAG_NAME"
+            exit 0
+          fi
+
+          gh release create "$TAG_NAME" \
+            --repo "${{ github.repository }}" \
+            --title "v$TAG_NAME" \
+            --notes-file "$RELEASE_NOTES_FILE"
+
+      - name: Move major version tag
+        run: |
+          set -e
+          MAJOR="v${TAG_NAME%%.*}"
+          # Only move v<major> forward: a patch to an older minor must not pull it back.
+          LATEST=$(git tag --sort=-version:refname | grep -E "^${TAG_NAME%%.*}\.[0-9]+\.[0-9]+$" | head -1)
+          if [ "$LATEST" != "$TAG_NAME" ]; then
+            echo "$TAG_NAME is not the newest ${MAJOR} release ($LATEST); leaving $MAJOR alone"
+            exit 0
+          fi
+          git tag -f "$MAJOR" "${TAG_NAME}^{commit}"
+          git push -f origin "refs/tags/$MAJOR"
