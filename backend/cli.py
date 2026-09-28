@@ -506,6 +506,19 @@ async def _run_scan(args: argparse.Namespace) -> ScanResult:
             await client.aclose()
 
 
+def _write(path: str, text: str, stderr: TextIO, append: bool = False) -> bool:
+    """Write a report file, creating its directory. Reports failure on stderr."""
+    try:
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with target.open("a" if append else "w", encoding="utf-8") as fh:
+            fh.write(text)
+    except OSError as exc:
+        print(f"actsense: cannot write {path}: {exc.strerror or exc}", file=stderr)
+        return False
+    return True
+
+
 def main(argv: Optional[Sequence[str]] = None, stdout: TextIO = sys.stdout, stderr: TextIO = sys.stderr) -> int:
     args = build_arg_parser().parse_args(argv)
 
@@ -532,7 +545,8 @@ def main(argv: Optional[Sequence[str]] = None, stdout: TextIO = sys.stdout, stde
     result.findings = [f for f in result.findings if _at_or_above(f.severity, args.min_severity)]
 
     if args.write_baseline:
-        Path(args.write_baseline).write_text(baseline_document(result.findings), encoding="utf-8")
+        if not _write(args.write_baseline, baseline_document(result.findings), stderr):
+            return EXIT_ERROR
         print(f"actsense: wrote {len(result.findings)} finding(s) to {args.write_baseline}", file=stderr)
         return EXIT_OK
 
@@ -546,19 +560,26 @@ def main(argv: Optional[Sequence[str]] = None, stdout: TextIO = sys.stdout, stde
         report = FORMATTERS[args.format](result)
 
     if args.output:
-        Path(args.output).write_text(report, encoding="utf-8")
+        if not _write(args.output, report, stderr):
+            return EXIT_ERROR
     else:
         stdout.write(report)
-    if args.summary_file:
-        with open(args.summary_file, "a", encoding="utf-8") as fh:
-            fh.write(format_markdown(result))
+    if args.summary_file and not _write(args.summary_file, format_markdown(result), stderr, append=True):
+        return EXIT_ERROR
 
     failing = [f for f in result.findings if f.gating and args.fail_on != "none" and _at_or_above(f.severity, args.fail_on)]
     return EXIT_FINDINGS if failing else EXIT_OK
 
 
 def main_entry() -> None:
-    sys.exit(main())
+    try:
+        code = main()
+    except Exception:
+        # An uncaught exception would exit 1, which reads as "findings".
+        import traceback
+        traceback.print_exc()
+        code = EXIT_ERROR
+    sys.exit(code)
 
 
 if __name__ == "__main__":

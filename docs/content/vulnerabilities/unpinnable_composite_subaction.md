@@ -7,6 +7,7 @@ Composite actions that use sub-actions with tags or branches instead of commit S
 ## Vulnerable Instance
 
 - Composite action uses a sub-action with a tag or branch reference instead of a commit SHA.
+- Composite action runs a `docker://` image by tag (or with no tag, which means `latest`) instead of by `@sha256:` digest.
 - Sub-action can be updated with malicious code without the composite action changing.
 - Builds are not reproducible and difficult to audit.
 
@@ -19,6 +20,7 @@ runs:
     - uses: actions/checkout@v4  # Unpinned - can be moved
       with:
         path: src
+    - uses: docker://alpine:3.20  # Image tag - can be re-pushed
 ```
 
 ## Mitigation Strategies
@@ -27,7 +29,7 @@ runs:
    Find the commit SHA for the sub-action by visiting the repository's releases page or checking the specific tag/branch. Copy the full 40-character commit SHA.
 
 2. **Update the composite action**  
-   Replace tag/branch references with full commit SHAs: `actions/checkout@8f4b7f84884ec3e152e95e913f196d7a537752ca` instead of `actions/checkout@v4`.
+   Replace tag/branch references with full commit SHAs: `actions/checkout@8f4b7f84884ec3e152e95e913f196d7a537752ca` instead of `actions/checkout@v4`. Pin `docker://` steps by digest: `docker://alpine:3.20@sha256:<digest>`.
 
 3. **Verify the SHA is correct**  
    Ensure the SHA is exactly 40 hexadecimal characters. Verify at `https://github.com/{owner}/{repo}/commit/{sha}`.

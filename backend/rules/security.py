@@ -4188,7 +4188,23 @@ def check_unpinnable_composite_action(action_yml: Dict[str, Any], action_ref: st
             for step in steps:
                 if isinstance(step, dict):
                     uses = step.get("uses", "")
-                    if isinstance(uses, str) and "/" in uses:
+                    if isinstance(uses, str) and uses.startswith("docker://"):
+                        # Registry images are pinned only by digest; no tag means :latest.
+                        if "@sha256:" not in uses:
+                            issues.append({
+                                "type": "unpinnable_composite_subaction",
+                                "severity": "high",
+                                "message": f"Composite action runs image '{uses}' without a digest. Image tags are mutable and pose security risks.",
+                                "action": action_ref,
+                                "subaction": uses,
+                                "evidence": {
+                                    "action": action_ref,
+                                    "subaction": uses,
+                                    "vulnerability": f"For detailed information about this vulnerability, visit: https://actsense.dev/vulnerabilities/unpinnable_composite_subaction"
+                                },
+                                "recommendation": f"For mitigation steps, visit: https://actsense.dev/vulnerabilities/unpinnable_composite_subaction"
+                            })
+                    elif isinstance(uses, str) and "/" in uses:
                         # Check if sub-action is pinned to full commit SHA
                         if "@" in uses:
                             ref = uses.split("@")[-1]
